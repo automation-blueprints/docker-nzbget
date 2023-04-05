@@ -1,9 +1,6 @@
-# Buildstage
-FROM ghcr.io/linuxserver/baseimage-alpine:3.16 as buildstage
-
-# set NZBGET version
-ARG NZBGET_RELEASE
-
+FROM ghcr.io/linuxserver/baseimage-alpine:3.17  as buildstage
+# set NZBGET Target Tag version, defaults to latest available
+ARG NZBGET_TAG
 RUN \
   echo "**** install build packages ****" && \
   apk add \
@@ -11,24 +8,29 @@ RUN \
     gcc \
     git \
     libxml2-dev \
+    libcap-dev \
     libxslt-dev \
+    autoconf \
+    libtool \
+    automake \
     make \
     ncurses-dev \
-    openssl-dev && \
-  echo "**** build nzbget ****" && \
-  if [ -z ${NZBGET_RELEASE+x} ]; then \
-    NZBGET_RELEASE=$(curl -sX GET "https://api.github.com/repos/nzbget/nzbget/releases/latest" \
-      | awk '/tag_name/{print $4;exit}' FS='[""]'); \
+    openssl-dev
+
+RUN  echo "**** build nzbget ****" && \
+  if [ -z ${NZBGET_TAG+x} ]; then \
+    NZBGET_TAG=$(curl -sX GET "https://api.github.com/repos/nzbget-ng/nzbget/tags" \
+      | awk '/name/{print $4;exit}' FS='[""]'); \
   fi && \
   mkdir -p /app/nzbget && \
-  git clone https://github.com/nzbget/nzbget.git nzbget && \
+  git clone https://github.com/nzbget-ng/nzbget.git nzbget && \
   cd nzbget/ && \
-  git checkout ${NZBGET_RELEASE} && \
-  git cherry-pick -n fa57474d && \
-  ./configure \
-    bindir='${exec_prefix}' && \
-  make && \
-  make prefix=/app/nzbget install && \
+  git checkout ${NZBGET_TAG} && \
+  git cherry-pick -n fa57474d
+WORKDIR /nzbget
+RUN autoreconf --install && \
+  sed --in-place=~ -e 's/\t-rm -f Makefile/\techo "include rebuild.mk" > Makefile/' Makefile.in && \
+ ./configure --prefix=/app/nzbget bindir='${exec_prefix}' && make  && make install && \
   sed -i \
     -e "s#^MainDir=.*#MainDir=/downloads#g" \
     -e "s#^ScriptDir=.*#ScriptDir=$\{MainDir\}/scripts#g" \
@@ -52,15 +54,12 @@ RUN \
     /app/nzbget/cacert.pem -L \
     "https://curl.haxx.se/ca/cacert.pem"
 
-# Runtime Stage
-FROM ghcr.io/linuxserver/baseimage-alpine:3.16
+FROM ghcr.io/linuxserver/baseimage-alpine:3.17
 
-ARG UNRAR_VERSION=6.1.7
+ARG UNRAR_VERSION=6.2.1
 # set version label
 ARG BUILD_DATE
 ARG VERSION
-LABEL build_version="Linuxserver.io version:- ${VERSION} Build-date:- ${BUILD_DATE}"
-LABEL maintainer="thelamer"
 
 RUN \
   echo "**** install build packages ****" && \
@@ -79,6 +78,8 @@ RUN \
   apk add --no-cache \
     libxml2 \
     libxslt \
+    ffmpeg \
+    libcap \
     openssl \
     p7zip \
     py3-pip \
@@ -87,7 +88,7 @@ RUN \
   mkdir /tmp/unrar && \
   curl -o \
     /tmp/unrar.tar.gz -L \
-    "https://www.rarlab.com/rar/unrarsrc-${UNRAR_VERSION}.tar.gz" && \  
+    "https://www.rarlab.com/rar/unrarsrc-${UNRAR_VERSION}.tar.gz" && \
   tar xf \
     /tmp/unrar.tar.gz -C \
     /tmp/unrar --strip-components=1 && \
@@ -98,7 +99,7 @@ RUN \
   pip3 install --no-cache-dir -U \
     pip \
     wheel && \
-  pip install --no-cache-dir --find-links https://wheel-index.linuxserver.io/alpine-3.16/ \
+  pip install --no-cache-dir --find-links https://wheel-index.linuxserver.io/alpine-3.17/ \
     apprise \
     chardet \
     lxml \
@@ -106,7 +107,6 @@ RUN \
     pynzbget \
     rarfile \
     six && \
-  ln -s /usr/bin/python3 /usr/bin/python && \
   echo "**** cleanup ****" && \
   apk del --purge \
     build-dependencies && \
