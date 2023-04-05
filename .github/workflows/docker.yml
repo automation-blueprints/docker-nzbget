@@ -1,0 +1,21 @@
+
+name: Manual Docker Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v2
+
+    - name: Build Docker Image
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        dockerfile: Dockerfile
+        push: false
+        tags: nzbget-ng:${{ github.sha }}
